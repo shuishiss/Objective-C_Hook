@@ -1,0 +1,13 @@
+   在 NSObject (Hook_Objc) 分类中提供了以下类方法，用于实现运行时修改🤣
+  😉ms_swizzleInstanceMethod:originalSelector:
+swizzledSelector:交换给定类的两个实例方法的实现
+  😊ms_swizzleClassMethod:originalSelector:
+swizzledSelector:交换给定类的两个类方法的实现
+  🤪ms_addInstanceMethod:selector:
+implementationBlock:typeEncoding:为类添加一个新的实例方法
+  🤓ms_replaceInstanceMethod:selector:
+implementationBlock: 用新的 block 实现替换现有实例方法的实现
+  🥰ms_hookResolveInstanceMethod:
+resolutionBlock:钩住类的 +resolveInstanceMethod:，通过 block 提供自定义的动态方法解析逻辑。
+  😟ms_hookForwardInvocation:
+invocationBlock:hook实例方法的 forwardInvocation:，通过 block 提供自定义的消息转发/处理逻辑。
