@@ -1,66 +1,78 @@
-(Objective-C Runtime Hooking Engine)
+Hook-Objc-Tools
+Objective-C Runtime API 的轻量级封装，用于简化方法交换 (Method Swizzling)、方法添加和消息转发 Hook 操作。
 
-##  Introduction
 
-本工具是对 Objective-C Runtime API 的轻量级封装，旨在简化方法交换（Swizzling）、方法添加和消息转发机制的 Hook 操作。
 
-**核心优势与应用场景:**
+特性 (Features)
+• 简洁封装: 对 Objective-C Runtime API 进行了轻量级封装，简化方法交换、方法添加和消息转发机制的 Hook 操作。
+• 方法交换 (Swizzling): 提供了实例方法 (ms_swizzleInstanceMethod) 和类方法 (ms_swizzleClassMethod) 的交换接口。
+• Block 支持: 支持使用 Block 作为方法实现 (ms_addInstanceMethod, ms_replaceInstanceMethod)。
+• 消息转发 Hook: 提供了 Hook +resolveInstanceMethod: 和 -forwardInvocation: 的能力。
+• 应用场景: 可用于增加系统 UI 控件的行为，比如注入日志，捕获未识别的选择器防止崩溃等。
 
-* **轻量易用:** 封装了复杂的 Runtime API，提供简单的类方法调用。
-* **功能强大:** 可用于增加系统 UI 控件的行为，注入日志，以及捕获未识别的选择器（`unrecognized selector`）以防止 App 崩溃。
+如何导入 (Installation)
+推荐使用手动导入方式：
+将 Hook_Objc.h 和 Hook_Objc.m 文件导入到您的 Xcode 项目中。
+在需要使用 Hook 功能的文件或项目的 Bridging Header 中导入：
+#import "Hook_Objc.h"
 
----
+使用方法 (Usage)
+所有 Hook 方法都通过 NSObject 的分类 Hook_Objc 提供。
+重要安全提示 (Safety Warning)
+为了保证线程安全和防止方法交换被多次执行，所有的方法交换 API 调用（ms_swizzle...）都应该使用 dispatch_once 进行包裹。
+1. 方法交换 (Method Swizzling)
+#import "Hook_Objc.h"
 
-## 核心 API (NSObject+Hook_Objc)
-
-所有 Hook 功能都通过 `NSObject (Hook_Objc)` 分类的类方法提供，使用 `ms_` 前缀：
-
-* **方法交换（实例方法）：** `+ms_swizzleInstanceMethod:(Class)aClass originalSelector:(SEL)originalSelector swizzledSelector:(SEL)swizzledSelector`
-* **方法交换（类方法）：** `+ms_swizzleClassMethod:(Class)aClass originalSelector:(SEL)originalSelector swizzledSelector:(SEL)swizzledSelector`
-* **替换方法实现：** `+ms_replaceInstanceMethod:(Class)aClass selector:(SEL)selector implementationBlock:(id)implementationBlock` (使用 Block 替换现有实例方法的实现)
-* **添加新方法：** `+ms_addInstanceMethod:(Class)aClass selector:(SEL)selector implementationBlock:(id)implementationBlock typeEncoding:(const char *)typeEncoding`
-* **Hook 消息转发：** `+ms_hookForwardInvocation:(Class)aClass invocationBlock:(void (^)(id, NSInvocation *))block`
-* **Hook 动态解析：** `+ms_hookResolveInstanceMethod:(Class)aClass resolutionBlock:(BOOL (^)(id, SEL))block`
-
----
-
-##  使用指南 (直接导入源文件)
-
-最简单、最快速的集成方式是直接将源文件加入您的项目编译列表。
-
-### 1. 文件准备
-
-将以下两个核心文件复制到您的项目中：
-* `Hook_Objc.h`
-* `Hook_Objc.m`
-
-### 2. 编写 Hook 逻辑
-
-在您的 Hook 逻辑文件（例如 `MyTweak.m`）中，导入 `Hook_Objc.h` 并编写您的 `+load` 方法。
-
-** 关键提示:** 必须使用 `dispatch_once` 包裹 Hook API 调用，以确保 Hooking 过程只执行一次，防止错误。
-
-**示例代码（使用 Block 替换方法）：**
-
-```objective-c
-#import "Hook_Objc.h" 
-#import "TargetClass.h" // 替换为您的目标类
-
-@implementation TargetClass (Hooking)
+@implementation MyClass (Hook)
 
 + (void)load {
+    // 确保方法交换只执行一次
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        Class target = [TargetClass class];
-        
-        // 示例：替换一个名为 'calculateValue' 的实例方法
-        [NSObject ms_replaceInstanceMethod:target
-                                 selector:@selector(calculateValue)
-                      implementationBlock:^NSInteger(id self) {
-            
-            NSLog(@"[MyHook] 方法已被替换，返回自定义值 42。");
-            return 42; 
-        }];
+        [self ms_swizzleInstanceMethod:[self class]
+                      originalSelector:@selector(originalMethod)
+                      swizzledSelector:@selector(ms_originalMethod)];
     });
 }
+
+// 替换方法：注意在实现中调用原始方法（此时被交换到 ms_originalMethod 上）
+- (void)ms_originalMethod {
+    // 1. 注入自定义逻辑
+    NSLog(@"[Hook] Before calling original method.");
+    
+    // 2. 调用原始实现
+    [self ms_originalMethod];
+    
+    // 3. 注入自定义逻辑
+}
+
 @end
+2. 捕获未识别选择器 (Hook resolveInstanceMethod:)
+用于防止因调用不存在的实例方法而导致的崩溃：
+// 在 App 启动时，对需要保护的类执行
+[NSObject ms_hookResolveInstanceMethod:[MyClass class] resolutionBlock:^BOOL(id self, SEL selector) {
+    
+    // 检查是否是需要处理的特定选择器
+    if ([NSStringFromSelector(selector) hasPrefix:@"nonExistent_"]) {
+        
+        // 动态添加一个假的实现来处理这个方法
+        BOOL success = [self ms_addInstanceMethod:[self class] 
+                                         selector:selector 
+                              implementationBlock:^void(id target) {
+                                  NSLog(@"[CrashGuard] Ignored selector: %@", NSStringFromSelector(selector));
+                              } 
+                                     typeEncoding:"v@:"]; // v:void, @:id, ::SEL
+        return success; // 返回YES表示已处理
+    }
+    
+    return NO; // 返回NO，让原始的 resolveInstanceMethod: 继续执行
+}];
+
+API 参考 (API Reference)
+所有方法都是 NSObject 分类方法，支持传入任意目标 Class。
+• ms_swizzleInstanceMethod:originalSelector:swizzledSelector:: 交换目标类的实例方法。
+• ms_swizzleClassMethod:originalSelector:swizzledSelector:: 交换目标类的类方法。
+• ms_addInstanceMethod:selector:implementationBlock:typeEncoding:: 向目标类动态添加实例方法，使用 Block 作为实现。
+• ms_replaceInstanceMethod:selector:implementationBlock:: 替换目标类现有实例方法的实现，使用 Block。
+• ms_hookResolveInstanceMethod:resolutionBlock:: Hook +resolveInstanceMethod:，用于在方法动态解析阶段注入逻辑。
+• ms_hookForwardInvocation:invocationBlock:: Hook -forwardInvocation:，在消息转发的最后一步执行自定义逻辑。
